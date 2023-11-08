@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Gmail Notify",
+  "version": "0.0.2",
+  "description": "Get notifications for new Gmail messages.",
+  "permissions": ["activeTab", "notifications", "webNavigation", "https://mail.google.com/mail/"],
+  "content_scripts": [
+    {
+      "matches": ["*://mail.google.com/*"],
+      "js": ["content.js"]
+    }
+  ],
+
+  "action": {
+    "default_popup": "index.html",
+    "default_icon": {
+      "16": "mail(16).png",
+      "48": "mail(48).png",
+      "128": "mail(128).png"
+    }
+  }
+}

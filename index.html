@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Gmail Notify</title>
+    <meta charset="utf-8" />
+    <!-- <meta script-src 'self' 'wasm-unsafe-eval' 'inline-speculation-rules' http://localhost:* http://127.0.0.1:*
+    />
+ -->
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+      }
+
+      .container {
+        text-align: center;
+        max-width: 900px;
+        padding: 20px;
+        border: 1px solid #ccc;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        background-color: #f9f9f9;
+      }
+
+      .show {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-bottom: 20px;
+      }
+
+      .show button {
+        background-color: blue;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        margin: 0 10px;
+      }
+
+      #content {
+        text-align: left;
+        font-size: 14px;
+        line-height: 1.6;
+        margin-top: 20px;
+      }
+
+      #content strong {
+        font-weight: bold;
+      }
+
+      #emailDetails {
+        font-size: 16px;
+        font-weight: bold;
+        margin-top: 0;
+      }
+
+      #refresh_button {
+        display: none;
+      }
+    </style>
+
+  </head>
+  <body>
+    <div class="container">
+      <h1>Gmail Notify</h1>
+
+      <div class="show">
+        <button id="authorize_button" onclick="handleAuthClick()">
+          Authorize
+        </button>
+        <button id="refresh_button" onclick="handleRefreshClick()">
+          Refresh
+        </button>
+        <button id="signout_button" onclick="handleSignoutClick()">
+          Sign Out
+        </button>
+      </div>
+      <pre id="content" style="white-space: pre-wrap"></pre>
+    </div>
+  </body>
+  <script>
+    const CLIENT_ID =
+      "361104851538-6q92gf2i68mhjb1089444jgg6rconeh2.apps.googleusercontent.com";
+    const API_KEY = "AIzaSyBlqvINcuxp8DMdUf3heHu7IY5C7rgfWWs";
+    const DISCOVERY_DOC =
+      "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest";
+    const SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
+
+    let tokenClient;
+    let gapiInited = false;
+    let gisInited = false;
+
+    document
+      .querySelectorAll(".show button")
+      .forEach((btn) => (btn.style.visibility = "hidden"));
+
+    function gapiLoaded() {
+      gapi.load("client", initializeGapiClient);
+    }
+
+    async function initializeGapiClient() {
+      await gapi.client.init({
+        apiKey: API_KEY,
+        discoveryDocs: [DISCOVERY_DOC],
+      });
+      gapiInited = true;
+      maybeEnableButtons();
+    }
+
+    function gisLoaded() {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: "",
+      });
+      gisInited = true;
+      maybeEnableButtons();
+    }
+
+    function maybeEnableButtons() {
+      if (gapiInited && gisInited) {
+        document
+          .querySelectorAll(".show button")
+          .forEach((btn) => (btn.style.visibility = "visible"));
+      }
+    }
+
+    async function handleAuthClick() {
+      if (typeof tokenClient === "undefined") {
+        console.error("tokenClient is not properly initialized.");
+        return;
+      }
+
+      tokenClient.callback = async (resp) => {
+        if (resp.error !== undefined) {
+          throw resp;
+          console.log(resp);
+        }
+        document.getElementById("signout_button").style.visibility = "visible";
+        document.getElementById("authorize_button").innerText = "Refresh";
+        await listEmails();
+      };
+      if (gapi.client.getToken() === null) {
+        tokenClient.requestAccessToken({ prompt: "consent" });
+      } else {
+        tokenClient.requestAccessToken({ prompt: "" });
+      }
+    }
+
+    function handleSignoutClick() {
+      const token = gapi.client.getToken();
+      if (token !== null) {
+        google.accounts.oauth2.revoke(token.access_token);
+        gapi.client.setToken("");
+        document.getElementById("content").innerText = "";
+        document.getElementById("authorize_button").innerText = "Authorize";
+        document.getElementById("signout_button").style.visibility = "hidden";
+      }
+    }
+
+    async function listEmails() {
+      console.log("listEmails function called");
+      let response;
+      try {
+        response = await gapi.client.gmail.users.messages.list({
+          userId: "me",
+        });
+      } catch (err) {
+        document.getElementById("content").innerText = err.message;
+        return;
+      }
+
+      const emailIds = response.result.messages;
+      if (!emailIds || emailIds.length === 0) {
+        document.getElementById("content").innerText = "No emails found.";
+        return;
+      }
+
+      const promises = emailIds.map(async (email) => {
+        try {
+          const emailDetails = await gapi.client.gmail.users.messages.get({
+            userId: "me",
+            id: email.id,
+            format: "full",
+          });
+
+          const headers = emailDetails.result.payload.headers;
+          const senderHeader = headers.find((header) => header.name === "From");
+          const senderEmail = senderHeader
+            ? senderHeader.value
+            : "Unknown Sender";
+
+          const emailContent = emailDetails.result.snippet;
+
+          return {
+            senderEmail,
+            emailContent,
+          };
+        } catch (err) {
+          return {
+            senderEmail: "Unknown Sender",
+            emailContent: "Unknown Content",
+          };
+        }
+      });
+
+      Promise.all(promises).then((emailDetails) => {
+        const output = emailDetails
+          .map(
+            (detail) =>
+              `Sender: <strong>${detail.senderEmail}</strong>\nContent: <strong>${detail.emailContent}</strong>\n`
+          )
+          .join("\n");
+        document.getElementById("content").innerHTML =
+          "<strong> Email Details </strong>:\n" + output;
+      });
+    }
+  </script>
+  <script
+    async
+    defer
+    src="https://apis.google.com/js/api.js"
+    onload="gapiLoaded()"
+  ></script>
+  <script
+    async
+    defer
+    src="https://accounts.google.com/gsi/client"
+    onload="gisLoaded()"
+  ></script>
+</html>
